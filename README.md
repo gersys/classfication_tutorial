@@ -1,4 +1,4 @@
-# Detect open class by CIFAR10 with PyTorch
+# Classification tutorial with PyTorch
 
 ## Prerequisites
 - Python 3.6+

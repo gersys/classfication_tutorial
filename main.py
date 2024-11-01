@@ -42,6 +42,8 @@ best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
 # Data
+
+# data의 전처리를 정의하는 부분입니다.
 print('==> Preparing data..')
 transform_train = transforms.Compose([
 
@@ -59,94 +61,45 @@ transform_test = transforms.Compose([
 ])
 
 
-# Data set을 loading하는 부분입니다.
-# 기존과 차이점은 openset data를 load하는 부분이 추가되었습니다.
 
-# -----------------------------------------------------------------------------------
-
-# trainset = torchvision.datasets.CIFAR10(
-#     root='./data', train=True, download=True, transform=transform_train)
-# trainloader = torch.utils.data.DataLoader(
-#     trainset, batch_size=128, shuffle=True, num_workers=2)
-#
-# train_openset = torchvision.datasets.SVHN(
-#     root='./data', split='train', download=True, transform=transform_train)
-# train_openloader = torch.utils.data.DataLoader(
-#     train_openset, batch_size=128, shuffle=False, num_workers=2
-# )
-#
-#
-# testset = torchvision.datasets.CIFAR10(
-#     root='./data', train=False, download=True, transform=transform_test)
-# testloader = torch.utils.data.DataLoader(
-#     testset, batch_size=100, shuffle=False, num_workers=2)
-#
-# openset = torchvision.datasets.SVHN(
-#     './data/open/SVHN', split='test',download=True, transform=transform_test)
-# openloader = torch.utils.data.DataLoader(
-#     openset, batch_size=100, shuffle=False, num_workers=2
-# )
-
+# dataset을 불러오는 부분입니다.
+#---------------------------------------------------------------------
+# train data를 불러오는 부분입니다.
 trainset = torchvision.datasets.ImageFolder(
     root='./data/custom/train_data', transform=transform_train)
+
+# train dataloader를 불러오는 부분입니다.
 trainloader = torch.utils.data.DataLoader(
     trainset, batch_size=128, shuffle=True, num_workers=0)
 
-# train_openset = torchvision.datasets.SVHN(
-#     root='./data', split='train', download=True, transform=transform_train)
-# train_openloader = torch.utils.data.DataLoader(
-#     train_openset, batch_size=128, shuffle=False, num_workers=2
-# )
-
-
+# test data를 불러오는 부분입니다.
 testset = torchvision.datasets.ImageFolder(
     root='./data/custom/test_data', transform=transform_test)
+
+# test dataloader를 불러오는 부분입니다.
 testloader = torch.utils.data.DataLoader(
     testset, batch_size=100, shuffle=False, num_workers=0)
-
-openset = torchvision.datasets.ImageFolder(
-    root='./data/custom/open_data', transform=transform_test)
-openloader = torch.utils.data.DataLoader(
-    openset, batch_size=100, shuffle=False, num_workers=0
-)
 
 
 
 # --------------------------------------------------------------------------------
 
-classes = ('plane', 'car', 'bird', 'cat', 'deer',
-           'dog', 'frog', 'horse', 'ship', 'truck')
-
 # 학습 Model을 정의하는 부분입니다. Resnet18을 사용하겠습니다.
 
 print('==> Building model..')
-# net = VGG('VGG19')
-#net = ResNet18()
-# net = PreActResNet18()
-# net = GoogLeNet()
-# net = DenseNet121()
-# net = ResNeXt29_2x64d()
-# net = MobileNet()
-# net = MobileNetV2()
-# net = DPN92()
-# net = ShuffleNetG2()
-# net = SENet18()
-# net = ShuffleNetV2(1)
-# net = EfficientNetB0()
-# net = RegNetX_200MF()
-# net = SimpleDLA()
 
 num_classes =args.num_cls
 lamda= 1
 
+# Resnet을 분류 모델로 사용하겠습니다.
 net = models.resnet50(pretrained=True)
+
+# 마지막 fc layer를 클래수 개수에 맞게 수정하는 부분입니다.
 net.fc =nn.Linear(2048,num_classes)
 
-
+# gpu device에 모델을 올리는 부분입니다.
 net = net.to(device)
-# if device == 'cuda':
-#     net = torch.nn.DataParallel(net)
-#     cudnn.benchmark = True
+
 
 
 # 저장된 모델을 load하는 부분입니다.
@@ -165,87 +118,20 @@ if args.resume:
 
 # loss function 및 optimizaer, learning rate scheduler를 정의하는 부분입니다.
 # -------------------------------------------------------------------------------------
+
+# 분류 문제이기 때문에 CrossEntropyLoss를 사용하겠습니다.
 criterion = nn.CrossEntropyLoss()
+
+# optimizer는 SGD를 사용하겠습니다.
 optimizer = optim.SGD(net.parameters(), lr=args.lr,
                       momentum=0.9, weight_decay=5e-4)
+
+# learning rate scheduler를 사용하겠습니다. 이는 epoch이 변할 때마다 learning rate를 조절해주는 역할을 합니다.
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
 # --------------------------------------------------------------------------------------
 
 
 
-
-# openset 탐지 능력을 검증하는 코드들 입니다.
-# ------------------------------------------------------------------------------
-def evaluate_openset(networks, dataloader_on, dataloader_off, **options):
-
-    # closed-set test-data에서 softmax-max값을 추출하여 저장합니다.
-    d_scores_on = get_openset_scores(dataloader_on, networks, open=False ,**options)
-
-    # open-set test-data에서 softmax-max값을 추출하여 저장합니다.
-    d_scores_off = get_openset_scores(dataloader_off, networks, open=True ,**options)
-
-
-    # closed-set을 클래스 '0' open-set을 클래스 '1'로 지정하여 label을 생성합니다.
-    y_true = np.array([0] * len(d_scores_on) + [1] * len(d_scores_off))
-
-    # 각 레이블당 confidence (softmax-max값)을 할당하여 저장합니다.
-    y_score = np.concatenate([d_scores_on, d_scores_off])
-
-    # 생성한 label값과 이에 해당하는 confidence값을 이용하여 AUROC값을 추출합니다.
-    auc_score = roc_auc_score(y_true, y_score)
-
-
-    #metrics.confusion_matrix(target_all, pred_all, labels=range(num_classes))
-
-    return auc_score
-
-
-def get_openset_scores(dataloader, networks,open, dataloader_train=None, **options):
-
-    #위 코드에서 사용되는 함수로 softmax의 max값을 추출하는 함수입니다.
-    openset_scores = openset_softmax_confidence(dataloader, networks,open=open)
-    return openset_scores
-
-
-
-def openset_softmax_confidence(dataloader, netC, open=False):
-
-    # softmax의 max값을 추출하여 저장하는 부분입니다.
-
-    # 먼저 값을 저장할 list를 선언합니다.
-    openset_scores = []
-    pred_all = []
-    target_all = []
-
-    openset_prediction =print(metrics.confusion_matrix(target_all, pred_all, labels=range(num_classes)))
-
-    #dataloader를 통해서 data를 받으면서 softmax값을 추출하고 이의 max값을 저장해줍니다.
-    with torch.no_grad():
-        for i, (images, labels) in enumerate(dataloader):
-            if torch.cuda.is_available():
-                images = images.cuda()
-
-
-            preds = F.softmax(netC(images), dim=1)
-
-            pred_all.extend(preds.max(dim=1)[1].data.cpu().numpy())
-            target_all.extend(labels.data.cpu().numpy())
-
-            openset_scores.extend(preds.max(dim=1)[0].data.cpu().numpy())
-
-
-    # 마지막에 '-'를 붙여서 return하는 이유는 다음과 같습니다.
-    # 위에서 closed-set을 '0' 클래스, open-set을 '1' 클래스로 정의하였습니다.
-    # 이때 confidence값이 작으면 '0' 클래스, 크면 '1' 클래스로 지정되도록 현재 AUROC 계산함수는 인식합니다.
-    # 그러나 softmax-max output값은 closed-set ('0')이 큰 값을 가지고 open-set ('1')이 작은 값을 가집니다.
-    # 때문에 AUROC 함수가 인식하는 결과에 맞게 -를 붙여서 closed-set('0')이 작은 값, open-set ('1')은 큰값이 되도록 합니다.
-    # 이 부분은 헷갈리시면 말씀해주세요.
-
-    if open == True:
-        print("Open Confusion matrix")
-        print(metrics.confusion_matrix(target_all, pred_all, labels=range(num_classes)))
-
-    return -np.array(openset_scores)
 
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
@@ -260,20 +146,28 @@ def train(epoch):
     correct = 0
     total = 0
 
-
+    # data를 batch 단위로 불러오는 부분입니다.
     for batch_idx, (inputs, targets) in enumerate(trainloader):
 
+        # data를 device에 올리는 부분입니다.
         inputs ,targets = inputs.to(device) ,targets.to(device)
+
+        # gradient를 0으로 초기화하는 부분입니다.
         optimizer.zero_grad()
+
+        # 모델에 data를 넣어 output을 얻는 부분입니다.
         outputs = net(inputs)
 
-
+        # loss를 계산하는 부분입니다.
         loss = criterion(outputs, targets)
 
-
+        # loss를 이용해 backpropagation을 하는 부분입니다.
         loss.backward()
+
+        # optimizer를 이용해 parameter를 업데이트하는 부분입니다.
         optimizer.step()
 
+        # loss 및 accuracy를 계산하는 부분입니다.
         train_loss += loss.item()
         _, predicted = outputs.max(1)
         total += targets.size(0)
@@ -283,53 +177,6 @@ def train(epoch):
                      % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
 
 
-
-
-
-
-
-# Training 하는 함수입니다.
-def open_train(epoch):
-    print('\nEpoch: %d' % epoch)
-    print("Current lr : {}".format(get_lr(optimizer)))
-    net.train()
-    train_loss = 0
-    correct = 0
-    total = 0
-
-    KLD_Loss = torch.nn.KLDivLoss()
-
-    for batch_idx, ((inputs, targets) , (open_inputs,_)) in enumerate(zip(trainloader, train_openloader)):
-        uniform_dist = torch.Tensor(open_inputs.size(0), num_classes).fill_((1. / num_classes))
-        uniform_dist = uniform_dist.to(device)
-
-        inputs, open_inputs ,targets = inputs.to(device), open_inputs.to(device) ,targets.to(device)
-        optimizer.zero_grad()
-        outputs = net(inputs)
-        open_outputs = net(open_inputs)
-
-        log_probs = F.log_softmax(open_outputs, dim=1)
-        kld_loss = KLD_Loss(log_probs, uniform_dist)
-
-        loss = criterion(outputs, targets)
-
-
-        print("cross-entropy loss :{:.2f} ".format(loss))
-        print("KL-div loss :{:.2f} ".format(kld_loss))
-
-
-        total_loss = loss+lamda*kld_loss
-
-        total_loss.backward()
-        optimizer.step()
-
-        train_loss += total_loss.item()
-        _, predicted = outputs.max(1)
-        total += targets.size(0)
-        correct += predicted.eq(targets).sum().item()
-
-        progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                     % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
 
 
 # test 하는 함수입니다.
@@ -343,12 +190,24 @@ def test(epoch):
     pred_all = []
     target_all = []
 
+    # torch.no_grad()를 사용하면 gradient를 계산하지 않겠다는 의미입니다.
+    # test 과정에서는 gradient를 계산할 필요가 없기 때문에 사용합니다.
     with torch.no_grad():
+
+        # data를 batch 단위로 불러오는 부분입니다.
         for batch_idx, (inputs, targets) in enumerate(testloader):
+
+            # data를 device에 올리는 부분입니다.
             inputs, targets = inputs.to(device), targets.to(device)
+
+            # 모델에 data를 넣어 output을 얻는 부분입니다.
             outputs = net(inputs)
+
+            # loss를 계산하는 부분입니다.
+            # test 과정에서 loss를 계산하는 이유는 모델이 얼마나 정확한지를 확인하기 위함입니다. (업데이트는 하지 않습니다.)
             loss = criterion(outputs, targets)
 
+            # loss 및 accuracy를 계산하는 부분입니다.
             test_loss += loss.item()
             _, predicted = outputs.max(1)
             total += targets.size(0)
@@ -363,7 +222,10 @@ def test(epoch):
         print("Closed-Set Confusion Matrix")
         print(metrics.confusion_matrix(target_all, pred_all, labels=range(num_classes)))
 
+
     # Save checkpoint.
+
+    # accuracy가 높아질 때마다 모델을 저장하는 부분입니다.
     acc = 100.*correct/total
     if acc > best_acc:
         print('Saving..')
@@ -383,8 +245,3 @@ if __name__=='__main__':
     for epoch in range(start_epoch, start_epoch+300):
         train(epoch) #train 함수 호출
         test(epoch)  #test 함수 호출
-
-        # 앞서 보았던 evaludate_openset함수를 실행하고 output인 auroc값을 출력
-        # 이때 입력으로는 network, closed-testloader, open-testloader를 줌.
-        print("AUROC : {:.2f} ".format(evaluate_openset(net,testloader,openloader)))
-        scheduler.step()

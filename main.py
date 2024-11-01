@@ -1,23 +1,17 @@
-'''Train CIFAR10 with PyTorch.'''
-
-# Cifar-10 dataset을 closed-set으로 학습을 시키고 SVHN test dataset을 openset으로 Test하는 코드입니다.
-# SVHN 데이터셋은 검색해보시면 어떠한 데이터셋인지 나올 겁니다.
 
 
-
+# torch library를 불러오는 부분입니다.
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
-
-
-
 import torchvision
 import torchvision.transforms as transforms
 import torchvision.models as models
 
 
+# 기타 필요한 library를 불러오는 부분입니다.
 import os
 import argparse
 
@@ -26,10 +20,10 @@ from utils import progress_bar
 
 import numpy as np
 
-from sklearn.metrics import roc_curve, roc_auc_score
 from sklearn import metrics
 
 
+# ArgumentParser를 사용하여 hyperparameter를 받아오는 부분입니다.
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true',
